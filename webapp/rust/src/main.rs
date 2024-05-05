@@ -5,6 +5,7 @@ use axum_extra::extract::cookie::SignedCookieJar;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use sqlx::mysql::{MySqlConnection, MySqlPool};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -1258,6 +1259,18 @@ struct ReactionModel {
     created_at: i64,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct UserReactionModel {
+    user_name: String,
+    reactions: MysqlDecimal,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct UserTipModel {
+    user_name: String,
+    tips: MysqlDecimal,
+}
+
 #[derive(Debug, serde::Serialize)]
 struct Reaction {
     id: i64,
@@ -1851,7 +1864,48 @@ async fn get_user_statistics_handler(
         .await?;
 
     let mut ranking = Vec::new();
+    let query = r#"
+    SELECT u.name AS user_name, COUNT(*) AS reactions FROM users u
+    INNER JOIN livestreams l ON l.user_id = u.id
+    INNER JOIN reactions r ON r.livestream_id = l.id
+    GROUP BY u.id
+    "#;
+    let reactions: Vec<UserReactionModel> = sqlx::query_as(query)
+        .fetch_all(&mut *tx)
+        .await?;
+
+    let query = r#"
+    SELECT u.name AS user_name, IFNULL(SUM(l2.tip), 0) AS tips FROM users u
+    INNER JOIN livestreams l ON l.user_id = u.id
+    INNER JOIN livecomments l2 ON l2.livestream_id = l.id
+    GROUP BY u.id
+    "#;
+    let tips: Vec<UserTipModel> = sqlx::query_as(query)
+        .fetch_all(&mut *tx)
+        .await?;
+
+    let mut user_scores: HashMap<String, i64> = HashMap::new();
+    for user_reaction in reactions {
+        *user_scores.entry(user_reaction.user_name).or_insert(0) += i64::from(user_reaction.reactions);
+    }
+    for user_tip in tips {
+        *user_scores.entry(user_tip.user_name).or_insert(0) += i64::from(user_tip.tips);
+    }
     for user in users {
+        if let Some(score) = user_scores.get(&user.name) {
+            ranking.push(UserRankingEntry {
+                username: user.name,
+                score: *score,
+            })
+        } else {
+            ranking.push(UserRankingEntry {
+                username: user.name,
+                score: 0i64,
+            })
+        }
+    }
+
+    /* for user in users {
         let query = r#"
         SELECT COUNT(*) FROM users u
         INNER JOIN livestreams l ON l.user_id = u.id
@@ -1879,7 +1933,7 @@ async fn get_user_statistics_handler(
             username: user.name,
             score,
         });
-    }
+    } */
     ranking.sort_by(|a, b| {
         a.score
             .cmp(&b.score)

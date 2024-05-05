@@ -1136,7 +1136,25 @@ async fn moderate_handler(
     .await?;
     let word_id = rs.last_insert_id() as i64;
 
-    let ngwords: Vec<NgWord> = sqlx::query_as("SELECT * FROM ng_words WHERE livestream_id = ?")
+    let query = r#"
+    DELETE FROM livecomments l
+    WHERE
+    EXISTS
+    (
+        SELECT 1
+        FROM ng_words n
+        WHERE
+        n.livestream_id = l.livestream_id
+        AND l.livestream_id = ?
+        AND l.comment LIKE CONCAT('%', n.word, '%')
+    )
+    "#;
+    sqlx::query(query)
+        .bind(livestream_id)
+        .execute(&mut *tx)
+        .await?;
+
+/*     let ngwords: Vec<NgWord> = sqlx::query_as("SELECT * FROM ng_words WHERE livestream_id = ?")
         .bind(livestream_id)
         .fetch_all(&mut *tx)
         .await?;
@@ -1169,7 +1187,7 @@ async fn moderate_handler(
                 .execute(&mut *tx)
                 .await?;
         }
-    }
+    } */
 
     tx.commit().await?;
 

@@ -1,0 +1,22 @@
+file: /var/log/nginx/access.log
+sort: count
+reverse: true
+output: count,2xx,4xx,5xx,method,uri,sum,avg,min,p90,p95,p99,max
+matching_groups:
+- '^/api/user/[a-zA-Z0-9]+/icon$'
+- '^/api/user/[a-zA-Z0-9]+/livestream$'
+- '^/api/user/[a-zA-Z0-9]+/statistics$'
+- '^/api/user/[a-zA-Z0-9]+/theme$'
+- '^/api/livestream/[0-9]{4}$'
+- '^/api/livestream/[0-9]{4}/enter$'
+- '^/api/livestream/[0-9]{4}/exit$'
+- '^/api/livestream/[0-9]{4}/livecomment$'
+- '^/api/livestream/[0-9]{4}/livecomment/[0-9]{4}/report$'
+- '^/api/livestream/[0-9]{4}/moderate$'
+- '^/api/livestream/[0-9]{4}/ngwords$'
+- '^/api/livestream/[0-9]{4}/reaction$'
+- '^/api/livestream/[0-9]{4}/report$'
+- '^/api/livestream/[0-9]{4}/statistics$'
+ltsv: {}
+json: {}
+regexp: {}

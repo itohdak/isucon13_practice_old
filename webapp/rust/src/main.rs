@@ -550,7 +550,19 @@ async fn search_livestreams_handler(
         sqlx::query_as(&query).fetch_all(&mut *tx).await?
     } else {
         // タグによる取得
-        let tag_id_list: Vec<i64> = sqlx::query_scalar("SELECT id FROM tags WHERE name = ?")
+        let query = r#"
+        SELECT l2.* FROM livestreams l2, livestream_tags l, tags t
+        WHERE l.tag_id = t.id
+        AND t.name = ?
+        AND l2.id = l.livestream_id
+        ORDER BY l.livestream_id DESC
+        "#;
+        let livestream_models = sqlx::query_as(query)
+            .bind(key_tag_name)
+            .fetch_all(&mut *tx)
+            .await?;
+
+/*         let tag_id_list: Vec<i64> = sqlx::query_scalar("SELECT id FROM tags WHERE name = ?")
             .bind(key_tag_name)
             .fetch_all(&mut *tx)
             .await?;
@@ -573,7 +585,7 @@ async fn search_livestreams_handler(
                 .fetch_one(&mut *tx)
                 .await?;
             livestream_models.push(ls);
-        }
+        } */
         livestream_models
     };
 
@@ -1268,6 +1280,18 @@ struct UserReactionModel {
 #[derive(Debug, sqlx::FromRow)]
 struct UserTipModel {
     user_name: String,
+    tips: MysqlDecimal,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct LivestreamReactionModel {
+    livestream_id: i64,
+    reactions: MysqlDecimal,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct LivestreamTipModel {
+    livestream_id: i64,
     tips: MysqlDecimal,
 }
 
@@ -2040,7 +2064,48 @@ async fn get_livestream_statistics_handler(
 
     // ランク算出
     let mut ranking = Vec::new();
+    let query = r#"
+    SELECT l.id AS livestream_id, COUNT(*) AS reactions FROM livestreams l
+    INNER JOIN reactions r
+    ON l.id = r.livestream_id
+    GROUP BY l.id
+    "#;
+    let reactions: Vec<LivestreamReactionModel> = sqlx::query_as(query)
+        .fetch_all(&mut *tx)
+        .await?;
+
+    let query = r#"
+    SELECT l.id AS livestream_id, IFNULL(SUM(l2.tip), 0) AS tips FROM livestreams l
+    INNER JOIN livecomments l2
+    ON l.id = l2.livestream_id
+    GROUP BY l.id
+    "#;
+    let tips: Vec<LivestreamTipModel> = sqlx::query_as(query)
+        .fetch_all(&mut *tx)
+        .await?;
+
+    let mut livestream_scores: HashMap<i64, i64> = HashMap::new();
+    for livestream_reaction in reactions {
+        *livestream_scores.entry(livestream_reaction.livestream_id).or_insert(0) += i64::from(livestream_reaction.reactions);
+    }
+    for livestream_tip in tips {
+        *livestream_scores.entry(livestream_tip.livestream_id).or_insert(0) += i64::from(livestream_tip.tips);
+    }
     for livestream in livestreams {
+        if let Some(score) = livestream_scores.get(&livestream.id) {
+            ranking.push(LivestreamRankingEntry {
+                livestream_id: livestream.id,
+                score: *score,
+            })
+        } else {
+            ranking.push(LivestreamRankingEntry {
+                livestream_id: livestream.id,
+                score: 0i64,
+            })
+        }
+    }
+
+    /* for livestream in livestreams {
         let MysqlDecimal(reactions) = sqlx::query_scalar("SELECT COUNT(*) FROM livestreams l INNER JOIN reactions r ON l.id = r.livestream_id WHERE l.id = ?")
             .bind(livestream.id)
             .fetch_one(&mut *tx)
@@ -2056,7 +2121,7 @@ async fn get_livestream_statistics_handler(
             livestream_id: livestream.id,
             score,
         })
-    }
+    } */
     ranking.sort_by(|a, b| {
         a.score
             .cmp(&b.score)
